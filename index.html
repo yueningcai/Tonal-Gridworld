@@ -1,0 +1,1158 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Tonal Gridworld</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Martian+Mono:wght@300;400&display=swap">
+<style>
+/* Layout: title + analysis, then scale + control panel, then grid + Q table side by side; one column on phones. */
+:root{
+  --bg:#06080b; --fg:#c9d2d6; --dim:#5f6d75; --line:#1b242a; --accent:#a9e4ff; --warm:#ff9d7a;
+  --display:'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --ui:'Martian Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --data:'Martian Mono', ui-monospace, Menlo, monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{min-height:100%}
+body{margin:0;background:radial-gradient(120% 90% at 30% 20%, #0c1218 0%, var(--bg) 60%) var(--bg);color:var(--fg);font-family:var(--ui);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.app{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding-inline:20px;padding-block:24px 48px;display:flex;flex-direction:column;gap:20px}
+
+/* ---------- header ---------- */
+.top{display:flex;flex-direction:column;gap:12px;align-self:center}
+.titleblock{min-width:0}
+h1{margin:0;font-family:var(--display);font-weight:400;line-height:.95;text-wrap:balance;font-size:clamp(36px,5vw,56px);letter-spacing:-.01em}
+.lede{margin:12px 0 0;max-width:60ch;color:var(--fg);font-size:12.5px;line-height:1.6}
+.lede b{font-weight:400;color:var(--accent)}
+.sub{margin:8px 0 0;max-width:60ch;color:var(--dim);font-size:11px;letter-spacing:.02em;line-height:1.6}
+
+/* ---------- main grid ---------- */
+.layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;align-items:start;
+  grid-template-areas:"head mon" "mode ctrl" "board mach"}
+.a-head{grid-area:head}.a-mon{grid-area:mon}.a-board{grid-area:board}.a-mach{grid-area:mach}.a-mode{grid-area:mode}.a-ctrl{grid-area:ctrl}
+@media (max-width:760px){.layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "mode" "board" "ctrl" "mon" "mach"}}
+.mon{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center}
+@media (max-width:420px){.mon{grid-template-columns:minmax(0,1fr)}}
+.win{min-width:0}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);padding-bottom:10px}
+.body{display:flex;flex-direction:column;gap:12px;min-width:0}
+.board-wrap{position:relative;width:100%;aspect-ratio:1/1;max-width:100%}
+#board{position:absolute;inset:0;width:100%;height:100%;display:block}
+.overlay{position:absolute;inset:0;display:grid;place-items:center}
+.legend{margin:0;display:flex;flex-direction:column;gap:3px;font-size:11px;line-height:1.5;color:var(--dim)}
+.legend dt{display:inline;color:var(--fg)}
+.legend dt::after{content:" – ";color:var(--dim)}
+.legend dd{display:inline;margin:0}
+.rewards b{font-weight:400;color:var(--fg)}
+.rewards{font-size:11px;color:var(--dim);max-width:70ch;margin:10px 0 0;line-height:1.6}
+
+.btn:focus-visible,.mode:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.modes{display:flex;flex-wrap:wrap;gap:6px 14px}
+.mode-row{display:flex;align-items:flex-start;gap:28px}
+.play-dot{flex:none;width:34px;height:34px;margin-top:1px;border-radius:50%;border:1px solid var(--dim);background:none;cursor:pointer;position:relative;transition:border-color .2s,background-color .2s}
+.play-dot::before{content:"";position:absolute;left:13px;top:10px;border-style:solid;border-width:7px 0 7px 11px;border-color:transparent transparent transparent var(--fg)}
+.play-dot:hover{border-color:var(--accent)}
+.play-dot:hover::before{border-left-color:var(--accent)}
+.play-dot[aria-pressed=true]{border-color:var(--accent);background:rgba(169,228,255,.08)}
+.play-dot[aria-pressed=true]::before{left:12px;top:12px;width:10px;height:10px;border:0;background:var(--accent)}
+.play-dot:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seq{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:3px;font-family:var(--data)}
+.seq .beat{display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 0 3px;min-width:0;font-variant-numeric:tabular-nums}
+.seq .beat i{font-style:normal;font-size:10px;opacity:.6}
+.seq .beat b{font-weight:400;font-size:13px;line-height:1.1}
+.seq .beat em{font-style:normal;font-size:11px;min-height:1.3em}
+.seq .beat{border:1px solid var(--line)}
+.seq .beat.now{border-color:var(--accent);color:var(--accent)}
+.seq em.good{color:var(--accent)}
+.seq em.bad{color:var(--warm);text-decoration:line-through}
+.seq em.miss{color:var(--dim);text-decoration:line-through}
+.field-ctl{display:grid;grid-template-columns:auto minmax(0,1fr) 6.5em;gap:10px;align-items:center;font-size:11px}
+.field-ctl label{white-space:nowrap;min-width:5.5em}
+.field-ctl output{font-family:var(--data);font-variant-numeric:tabular-nums;text-align:right}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.params{margin:0;font-size:11px;line-height:1.6;color:var(--dim)}
+.params b{font-weight:400;color:var(--fg);font-family:var(--data)}
+.readout{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.big{font-family:var(--display);white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;font-size:64px;color:var(--fg)}
+#spark{width:100%;height:64px;display:block}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:11px}
+.stats div{display:flex;flex-direction:column}
+.stats span{color:var(--dim)}
+.stats strong{font-family:var(--data);font-weight:400;font-variant-numeric:tabular-nums;font-size:15px}
+.pts-stats{margin-top:4px}
+.kbd-hint{margin-left:auto;font-size:10px;color:var(--dim);letter-spacing:.06em}
+.kbd-hint kbd{font:inherit;color:var(--fg);border:1px solid var(--line);padding:2px 5px;margin-right:4px}
+.tape{display:flex;flex-wrap:wrap;gap:4px;font-family:var(--data);font-size:11px;min-height:2.6em}
+.tape span{padding:1px 4px;color:var(--accent)}
+
+h1 em{font-style:italic;color:var(--accent)}
+.a-mon,.a-board,.a-mach,.a-mode,.a-ctrl{border-top:1px solid var(--line);padding-top:12px}
+.btn{font:inherit;cursor:pointer;background:none;border:1px solid var(--line);color:var(--fg);padding:8px 12px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;transition:border-color .2s,color .2s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn[aria-pressed=true]{color:var(--accent);border-color:var(--accent)}
+.mode{background:none;border:0;padding:0;cursor:pointer;color:var(--dim);font-family:var(--display);font-style:italic;font-size:24px;line-height:1.15;transition:color .2s}
+.mode:hover{color:var(--fg)}
+.mode[aria-pressed=true]{color:var(--accent)}
+.mode-desc{margin:0;color:var(--fg);max-width:48ch;min-width:0;font-family:var(--display);font-size:18px;line-height:1.35}
+.tape span.off{color:var(--warm)}
+.overlay .btn{background:rgba(6,8,11,.6);backdrop-filter:blur(4px);padding:14px 22px;font-size:11px}
+
+.beatline{margin:0;font-size:12px;line-height:1.5;color:var(--fg);min-height:3em;max-width:72ch}
+.beatline b{font-weight:400;color:var(--accent)}
+.caption{margin:0;min-height:3.2em;display:flex;align-items:center;max-width:72ch;font-size:12px;color:var(--fg);border-left:1px solid var(--accent);padding-left:12px}
+.qcube{position:relative;width:100%;aspect-ratio:1/1;max-width:100%;touch-action:none;cursor:grab}
+.qcube.dragging{cursor:grabbing}
+.qcube canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#mview{width:100%;aspect-ratio:1/1;max-width:100%;display:block}
+.qtip{position:absolute;pointer-events:none;font-size:11px;padding:4px 7px;background:rgba(6,8,11,.85);border:1px solid var(--line);color:var(--fg);white-space:nowrap;transform:translate(10px,-120%)}
+.qempty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;padding:10px 14px;background:rgba(6,8,11,.82);border:1px solid var(--line);font-size:11px;line-height:1.6;color:var(--fg);text-align:center;pointer-events:none;width:max-content;max-width:86%}
+.qbar{display:flex;justify-content:space-between;align-items:center;min-height:30px;margin-top:-4px}
+.qfront{padding:6px 10px}
+.qfacing{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.mnote b{font-weight:400;color:var(--fg)}
+.qviews{margin-top:2px}
+.qnotes{display:flex;flex-direction:column;gap:8px}
+.mnote{margin:0;font-size:11px;color:var(--dim);line-height:1.6}
+/* ---------- progressive hints ---------- */
+.hint{position:absolute;z-index:30;transform:translate(-50%,6px);opacity:0;transition:opacity .35s,transform .35s;background:rgba(6,8,11,.94);border:1px solid var(--accent);color:var(--fg);font-size:11px;line-height:1.5;padding:8px 30px 8px 12px;max-width:260px;width:max-content}
+.hint.on{opacity:1;transform:translate(-50%,0)}
+.hint::before{content:"";position:absolute;left:50%;top:-6px;width:10px;height:10px;background:inherit;border-left:1px solid var(--accent);border-top:1px solid var(--accent);transform:translateX(-50%) rotate(45deg)}
+.hint.mid::before{display:none}
+.hint.mid{pointer-events:none}.hint.mid .hint-x{pointer-events:auto}   /* drags pass through to the cube */
+.hint b{font-weight:400;color:var(--accent)}
+.hint-x{position:absolute;right:6px;top:5px;background:none;border:0;padding:0 4px;color:var(--dim);cursor:pointer;font:inherit;font-size:13px;line-height:1}
+.hint-x:hover{color:var(--fg)}
+.btn.hint-pulse{animation:hintPulse 1.8s ease-in-out infinite}
+@keyframes hintPulse{0%,100%{box-shadow:0 0 0 0 rgba(169,228,255,0)}50%{box-shadow:0 0 0 5px rgba(169,228,255,.16);border-color:var(--accent);color:var(--accent)}}
+@media (prefers-reduced-motion: reduce){.btn.hint-pulse{animation:none;border-color:var(--accent)}.hint{transition:none}}
+/* first visit: dim the page around the two ways to start, until any click */
+.veil{position:fixed;inset:0;z-index:20;background:rgba(3,5,8,.62);opacity:0;transition:opacity .6s;cursor:pointer}
+.veil.on{opacity:1}
+.lift{position:relative;z-index:21}
+@media (prefers-reduced-motion: reduce){.veil{transition:none}}
+/* ---------- how it works ---------- */
+.how{display:flex;flex-direction:column;gap:30px;border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.how-sec{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}
+@media (max-width:760px){.how-sec{grid-template-columns:minmax(0,1fr);gap:16px}}
+.how h3{margin:0 0 12px;font-family:var(--display);font-weight:400;font-size:28px;line-height:1.1;text-wrap:balance}
+.how h3 span{font-family:var(--data);font-size:11px;letter-spacing:.12em;color:var(--dim);vertical-align:middle;margin-right:10px}
+.how p{margin:0 0 12px;font-family:var(--display);font-size:17px;line-height:1.45;max-width:58ch;color:var(--fg)}
+.how p b,.how-list b{font-weight:400;color:var(--accent)}
+.how-list{margin:0 0 12px;padding-left:1.1em;font-family:var(--display);font-size:17px;line-height:1.45;max-width:58ch;color:var(--fg)}
+.how-list li{margin-bottom:4px}
+.how a{color:var(--accent)}
+.how p.credits{margin-top:24px;font-family:var(--ui);font-size:11px;color:var(--dim)}
+.how p.credits a{color:var(--fg);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;text-decoration-color:var(--dim)}
+.how p.credits a:hover{text-decoration-color:var(--accent)}
+.how-fig{margin:0;padding-top:0;color:var(--fg)}
+.how-fig svg{width:100%;height:auto;display:block;font-family:var(--data)}
+#figScale .pkey{cursor:pointer;outline:none}
+#figScale .pkey circle{transition:fill .25s,stroke-opacity .25s}
+#figScale .pkey:hover circle,#figScale .pkey:focus-visible circle{stroke-opacity:1}
+#figScale .pkey.on circle{fill:rgba(169,228,255,.5);stroke-opacity:1;transition:none}
+.how-fig figcaption{margin-top:10px;font-size:11px;line-height:1.6;color:var(--dim);max-width:62ch}
+</style>
+
+<div class="app">
+  <main class="layout">
+  <header class="top a-head">
+    <div class="titleblock">
+      <h1>Tonal <em>Gridworld</em></h1>
+      <p class="lede">A demo that makes Q-learning, a basic reinforcement-learning algorithm, visible and audible. To hear a trained agent, press <b>+2,000 episodes</b> twice, then <b>Play</b>.</p>
+      <p class="sub" id="sub">An agent teaches itself to play music. Each square of the 8×8 grid is a note, from C2 at the bottom left to D♯7 at the top right: one semitone higher for each square to the right, eight for each row up. The agent plays 8-step sequences and learns by Q-learning, from trial, error and points alone. Nobody tells it which notes belong to the scale.</p>
+      <p class="rewards"><b>Moves</b> Like a chess king: one square in any of eight directions, but never straight back to the square it just left.</p>
+      <p class="rewards"><b>Points</b> Notes in the chosen scale are safe; notes outside it cost points. And because we want each sequence to sound like it belongs to the scale, some steps of a sequence ask for one particular note. So the same square can be worth different points at different moments. How it works, below, explains the details.</p>
+    </div>
+  </header>
+      <section class="win a-mon">
+        <div class="bar"><span>Analysis</span></div>
+        <div class="body">
+          <div class="mon">
+            <div class="readout"><span class="big" id="tonal">—%</span><span class="lbl" id="tonalLbl">Press Play<br>to begin</span></div>
+            <canvas id="spark" aria-label="Share of in-key notes over time"></canvas>
+          </div>
+          <div class="stats">
+            <div><span>Moves</span><strong id="stSteps">0</strong></div>
+            <div><span>Episodes</span><strong id="stPhr">0</strong></div>
+            <div><span>Next step</span><strong id="stStage">1 / 8</strong></div>
+          </div>
+          <div class="stats pts-stats">
+            <div><span>Points, last note</span><strong id="ptNote">—</strong></div>
+            <div><span>Last sequence</span><strong id="ptSeq">—</strong></div>
+            <div><span>Average, last 50</span><strong id="ptAvg">—</strong></div>
+          </div>
+          <div class="tape" id="tape" aria-label="Most recent notes"></div>
+          <dl class="legend stat-notes">
+            <div><dt>Moves</dt><dd>notes played so far; the agent moves one square per note.</dd></div>
+            <div><dt>Episodes</dt><dd>complete 8-step sequences. In reinforcement learning an episode is one full attempt at the task; here, one attempt is one sequence.</dd></div>
+            <div><dt>Next step</dt><dd>which of the 8 steps the agent plays next.</dd></div>
+            <div><dt>Points</dt><dd>the agent's reward.</dd></div>
+          </dl>
+        </div>
+      </section>
+    <section class="win a-board">
+      <div class="bar"><span>Tonal Grid</span></div>
+      <div class="body">
+        <div class="board-wrap">
+          <canvas id="board" aria-label="8 by 8 note grid with the agent's position and learned values"></canvas>
+          <div class="overlay" id="overlay"><button class="btn" id="begin">▶ Start with sound</button></div>
+        </div>
+        <dl class="legend">
+          <div><dt>Glow</dt><dd>the agent</dd></div>
+          <div><dt>Trail</dt><dd>the notes it just played, fading out</dd></div>
+          <div><dt>Circle</dt><dd>a note in the scale. A number shows the points it will earn on the coming step (an empty circle earns 0); the circle lights up when the number is positive.</dd></div>
+          <div><dt>Cross</dt><dd>a note outside the scale. Landing on it costs 10 points.</dd></div>
+          <div><dt>Arrow</dt><dd>the move the agent currently thinks is best from that square (argmax Q)</dd></div>
+        </dl>
+      </div>
+    </section>
+      <section class="win a-mach">
+        <div class="bar"><span>Q table</span></div>
+        <div class="body">
+          <div class="qcube" id="qcube" aria-label="The Q-table as 8 stacked layers, one per step. Drag to turn it.">
+            <canvas id="mview" aria-label="The agent's learned values, as numbers"></canvas>
+            <div class="qtip" id="qtip" hidden></div>
+            <p class="qempty" id="qempty">Nothing learned yet: every value starts at 0.<br>Press Play or +2,000 episodes and watch them change.</p>
+          </div>
+          <div class="qbar"><span class="qfacing" id="qfacing">Facing step 1</span><button class="btn qfront" id="qfront" hidden>Face front</button></div>
+          <div class="qviews row" id="qviews" role="group" aria-label="What the table shows">
+            <button class="btn qv" data-v="moves" aria-pressed="true">Q-values at current state</button>
+            <button class="btn qv" data-v="max" aria-pressed="false">Max Q of each square</button>
+          </div>
+          <div class="qnotes" data-v="moves">
+            <p class="mnote">What the agent has learned so far: how valuable each available move is in the long run. It takes the highest unless ε makes it explore.</p>
+            <dl class="legend">
+              <div><dt>White square</dt><dd>the agent</dd></div>
+              <div><dt>Numbers</dt><dd>Q(s, a) of each move; a dim 0 has not been tried yet (every value starts at 0)</dd></div>
+              <div><dt>Outline</dt><dd>the highest (argmax Q)</dd></div>
+              <div><dt>Dashed ×</dt><dd>where it came from: no going back</dd></div>
+              <div><dt>Hover</dt><dd>the move's TD target: points for landing there + 0.92 × that square's max Q on the next step</dd></div>
+              <div><dt>Drag</dt><dd>turn the table: 64 squares × 8 steps × 8 moves. Pinch to zoom.</dd></div>
+            </dl>
+          </div>
+          <div class="qnotes" data-v="max" hidden>
+            <p class="mnote">Max Q: how many points the agent expects if it stands on this square and takes its best move. When it lands here, this value is used to update the move that brought it here.</p>
+            <dl class="legend">
+              <div><dt>White square</dt><dd>the agent</dd></div>
+              <div><dt>Numbers</dt><dd>max Q of each square; a dim 0 has not been tried yet</dd></div>
+              <div><dt>Drag</dt><dd>turn the table to see every step. Pinch to zoom.</dd></div>
+            </dl>
+          </div>
+        </div>
+      </section>
+      <section class="win a-mode">
+        <div class="bar"><span>Scale</span></div>
+        <div class="body">
+          <div class="modes" id="modes" role="group" aria-label="Scale"></div>
+          <div class="mode-row"><button class="play-dot" id="listen" aria-pressed="false" aria-label="Listen to this scale" title="Listen to this scale"></button><p class="mode-desc" id="modeDesc"></p></div>
+          <div class="seq" id="seq" aria-label="The 8 steps of the sequence, what each one wants, and what was played"></div>
+          <p class="beatline" id="beatline"></p>
+          <p class="caption" id="caption" aria-live="polite">Each square is a note. The agent plays 8-step sequences: each should open on the third, which tells major from minor, reach G on step 4 and come home to C on step 8. It starts out knowing nothing, so at first it presses squares at random and learns from the points it wins or loses.</p>
+        </div>
+      </section>
+      <section class="win a-ctrl">
+        <div class="bar"><span>Control Panel</span></div>
+        <div class="body">
+          <div class="row">
+            <button class="btn" id="play" aria-pressed="false">Play</button>
+            <button class="btn" id="skip">+2,000 episodes</button>
+            <button class="btn" id="reset">Reset</button>
+            <span class="kbd-hint"><kbd>Space</kbd> play / pause</span>
+          </div>
+          <div class="field-ctl"><label for="eps">Explore ε</label><input type="range" id="eps" min="0" max="1" step="0.01" value="1"><output id="epsOut">1.00 auto</output></div>
+          <div class="field-ctl"><label for="bpm">Tempo</label><input type="range" id="bpm" min="60" max="260" step="1" value="150"><output id="bpmOut">150 bpm</output></div>
+          <p class="params">Explore ε is how often the agent picks a random move instead of the best one it knows. High ε: it tries new notes. Low ε: it plays what it has learned. ε falls on its own (auto) until you drag it.</p>
+          <p class="params">Learning rate α <b>0.2</b> · Discount γ <b>0.92</b> · <b>1</b> Q-value updated per move</p>
+        </div>
+      </section>
+  </main>
+  <article class="how" aria-labelledby="howTitle">
+    <div class="bar"><span id="howTitle">How it works</span></div>
+
+    <section class="how-sec">
+      <div class="how-text">
+        <h3><span>01</span> Scale and sequence</h3>
+        <p>A <b>scale</b> is the set of notes a piece of music uses. The three here each keep seven of the twelve notes in an octave, all built on C. A few of them carry the key:</p>
+        <ul class="how-list">
+          <li><b>Tonic</b>, C: home. A melody feels finished when it lands there.</li>
+          <li><b>Dominant</b>, G: the 5th degree, the strongest note after the tonic.</li>
+          <li><b>Third</b>: E in major and Phrygian dominant, E♭ in harmonic minor. It decides whether the music sounds major or minor.</li>
+          <li><b>Leading tone</b>, B: a semitone below C, it pulls up into it. Harmonic minor raises its 7th to B for this pull; without it, C minor shares six notes with E♭ major and can sound like it.</li>
+        </ul>
+        <p>A scale says which notes to use but not when. A <b>sequence</b> does: a row of steps, one note each, played in a loop as in a step sequencer. Here every 8-step sequence has the same shape, marked by the bars in the figure:</p>
+        <ul class="how-list">
+          <li><b>Step 1</b>: the third, so you hear major or minor at once.</li>
+          <li><b>Step 4</b>: the dominant, G.</li>
+          <li><b>Step 7</b>, in two scales: a note a semitone from C that resolves into it. B rises in harmonic minor, D♭ falls in Phrygian dominant.</li>
+          <li><b>Step 8</b>: home, C.</li>
+        </ul>
+        <p>The other steps can be any note in the scale. On the grid each note appears in several octaves; only its name counts.</p>
+      </div>
+      <figure class="how-fig">
+        <svg id="figScale" viewBox="0 0 600 150" role="img" aria-label="The twelve notes of one octave, with the current scale's notes and its key notes marked"></svg>
+        <figcaption id="figScaleCap">The current scale on one octave. Blue circles are in the scale; × are not.</figcaption>
+        <svg id="figSeq" viewBox="0 0 600 280" role="img" aria-label="One 8-step sequence in the current scale: the third on step 1, G on step 4, in two scales a semitone neighbour of C on step 7, C on step 8, other steps free" style="margin-top:28px"></svg>
+        <figcaption id="figSeqCap">One sequence that fits the scale.</figcaption>
+      </figure>
+    </section>
+
+    <section class="how-sec">
+      <div class="how-text">
+        <h3><span>02</span> States and moves</h3>
+        <p>In reinforcement learning, the <b>state</b> is everything the agent knows when it makes a decision. Here it knows two things: which square it is standing on (64 possibilities) and which step of the sequence it is about to play (8). That makes 64 × 8 = <b>512 states</b>, the 8 layers of the Q table.</p>
+        <p>The step is part of the state because the rewards depend on it: the same note can earn different points on different steps. This is how the agent learns not just to stay in the scale but to give each sequence its shape.</p>
+        <p>The <b>actions</b> are a chess king's moves: one square in any of the 8 directions. Moves off the board are not offered, and neither is the move straight back to the square it has just left, which stops it from bouncing between two notes forever.</p>
+        <p>So the full Q table holds 512 states × 8 moves = <b>4,096 values</b>: for every state, how good each move looks. The cube shows one tile per state; in its Max Q view, each tile is lit by its best move.</p>
+      </div>
+      <figure class="how-fig">
+        <svg viewBox="0 0 600 238" role="img" aria-label="Left: the eight king moves from a square, with the move back to the previous square ruled out. Right: the 64 squares repeated for each of the 8 steps, giving 512 states.">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+            <marker id="ahA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#a9e4ff"/></marker>
+          </defs>
+          <g fill="none" stroke="currentColor" stroke-opacity=".35">
+            <rect x="30" y="30" width="168" height="168"/><line x1="86" y1="30" x2="86" y2="198"/><line x1="142" y1="30" x2="142" y2="198"/><line x1="30" y1="86" x2="198" y2="86"/><line x1="30" y1="142" x2="198" y2="142"/>
+          </g>
+          <circle cx="114" cy="114" r="7" fill="#f2fbff"/>
+          <g stroke="#a9e4ff" stroke-width="1.6" marker-end="url(#ahA)">
+            <line x1="114" y1="104" x2="114" y2="64"/><line x1="124" y1="114" x2="164" y2="114"/><line x1="104" y1="114" x2="64" y2="114"/>
+            <line x1="122" y1="106" x2="156" y2="72"/><line x1="122" y1="122" x2="156" y2="156"/><line x1="106" y1="106" x2="72" y2="72"/><line x1="106" y1="122" x2="72" y2="156"/>
+          </g>
+          <line x1="114" y1="124" x2="114" y2="162" stroke="#ff9d7a" stroke-width="1.6" stroke-dasharray="4 3"/>
+          <circle cx="114" cy="170" r="5" fill="none" stroke="#ff9d7a"/>
+          <text x="114" y="212" text-anchor="middle" font-size="12" fill="currentColor">came from below:</text><text x="114" y="227" text-anchor="middle" font-size="12" fill="currentColor">no going back</text>
+          <text x="114" y="18" text-anchor="middle" font-size="12" fill="currentColor">8 king moves</text>
+          <g fill="none" stroke="#a9e4ff">
+            <g stroke-opacity=".25"><rect x="404" y="46" width="128" height="128"/><rect x="394" y="56" width="128" height="128"/><rect x="384" y="66" width="128" height="128"/></g>
+            <g stroke-opacity=".45"><rect x="374" y="76" width="128" height="128"/></g>
+          </g>
+          <g stroke="currentColor" stroke-opacity=".18">
+            <line x1="390" y1="76" x2="390" y2="204"/><line x1="406" y1="76" x2="406" y2="204"/><line x1="422" y1="76" x2="422" y2="204"/><line x1="438" y1="76" x2="438" y2="204"/><line x1="454" y1="76" x2="454" y2="204"/><line x1="470" y1="76" x2="470" y2="204"/><line x1="486" y1="76" x2="486" y2="204"/>
+            <line x1="374" y1="92" x2="502" y2="92"/><line x1="374" y1="108" x2="502" y2="108"/><line x1="374" y1="124" x2="502" y2="124"/><line x1="374" y1="140" x2="502" y2="140"/><line x1="374" y1="156" x2="502" y2="156"/><line x1="374" y1="172" x2="502" y2="172"/><line x1="374" y1="188" x2="502" y2="188"/>
+          </g>
+          <line x1="512" y1="210" x2="548" y2="174" stroke="currentColor" marker-end="url(#ah)"/>
+          <text x="552" y="170" font-size="12" fill="currentColor">step 1 → 8</text>
+          <text x="438" y="222" text-anchor="middle" font-size="12" fill="currentColor">64 squares</text>
+          <text x="468" y="30" text-anchor="middle" font-size="12" fill="currentColor">64 × 8 = 512 states</text>
+        </svg>
+        <figcaption>Left: the moves on offer from one square. Right: the same 64 squares once for each step of the sequence.</figcaption>
+      </figure>
+    </section>
+
+    <section class="how-sec">
+      <div class="how-text">
+        <h3><span>03</span> Rewards</h3>
+        <p>Points are the agent's only teacher:</p>
+        <ul class="how-list">
+          <li><b>+10</b>: C on step 8.</li>
+          <li><b>+5</b>: the third on step 1, G on step 4, and B or D♭ on step 7 (harmonic minor, Phrygian dominant).</li>
+          <li><b>0</b>: any other note in the scale.</li>
+          <li><b>−5</b>: a target step that misses its note.</li>
+          <li><b>−10</b>: any note outside the scale.</li>
+        </ul>
+        <p>The −10 teaches the scale; the targets teach the shape. Other notes earn nothing on purpose: paying for them taught an earlier version to bounce between two cheap notes for ever.</p>
+        <p>By design, only a few key steps frame each sequence; the others leave room for variety and earn nothing on their own. So the agent cannot judge a move by its points alone. It judges a move by everything that follows from it: the points now plus all the points after, each counted a little less the further away it is. How much less is set by the <b>discount factor</b> γ.</p>
+        <p>The same idea, written one step at a time: the value of a move is its points now plus γ (0.92) times the value of the best move after it, max Q(s′, a′). For perfect play this is the <b>Bellman equation</b> (Richard Bellman, 1957), shown on the right. Q*(s, a) is the true value of move a in state s. The agent never knows it; section 04 shows how it closes in on it.</p>
+      </div>
+      <figure class="how-fig">
+        <svg id="figReward" viewBox="0 0 640 190" role="img" aria-label="What each step of the 8-step sequence asks for in the current scale, and the points for it."></svg>
+        <figcaption>What each step asks for in the current scale. After step 8 the next sequence starts from wherever the agent landed.</figcaption>
+        <svg viewBox="0 0 640 176" role="img" aria-label="The Bellman equation: the value of a move with perfect play afterwards equals the points now plus gamma, the discount factor, times the value of the best move from where it lands." style="margin-top:28px">
+          <g font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="26" fill="currentColor" text-anchor="middle">
+            <text x="88" y="80">Q*(s,a)</text><text x="176" y="80">=</text><text x="240" y="80" fill="#a9e4ff">r</text><text x="280" y="80">+</text><text x="316" y="80">γ</text><text x="450" y="80">max Q*(s′,a′)</text>
+          </g>
+          <g stroke="currentColor" stroke-opacity=".45"><line x1="88" y1="92" x2="88" y2="108"/><line x1="240" y1="92" x2="240" y2="108"/><line x1="316" y1="92" x2="316" y2="140"/><line x1="450" y1="92" x2="450" y2="108"/></g>
+          <g font-size="11" fill="currentColor" text-anchor="middle">
+            <text x="88" y="126">value of this move</text><text x="240" y="126">points now</text><text x="450" y="126">best value from where it lands</text>
+            <text x="316" y="158">discount factor</text>
+          </g>
+        </svg>
+        <figcaption>The Bellman equation (Bellman, 1957): the value of a move is what it earns now plus the discounted value of the best move after it.</figcaption>
+      </figure>
+    </section>
+
+    <section class="how-sec">
+      <div class="how-text">
+        <h3><span>04</span> Learning: one-step Q-learning</h3>
+        <p>The agent keeps updating its Q table. After each move it updates exactly one entry, the move it has just made, using the rule on the right. The rule comes from the Bellman equation in section 03: its right-hand side, computed with the agent's own estimates in place of Q*, becomes the target, called the <b>TD target</b>.</p>
+        <p>The bracket is the <b>TD error</b>: the gap between that target and the old estimate, or how wrong the old estimate turned out to be. α = 0.2 moves the estimate a fifth of the way towards the target; γ = 0.92 is the discount factor. As the errors shrink on the moves it keeps making, its estimates there settle on Q*.</p>
+        <p>To choose a move, the agent is <b>ε-greedy</b>: with probability ε it moves at random to explore; otherwise it takes the move with the highest Q value. ε starts at 1 and falls towards 0.02 as it practises. Drag the ε slider to take over.</p>
+        <p>An <b>episode</b> is one 8-step sequence. +2,000 episodes plays 16,000 moves silently in a fraction of a second; two presses are usually enough for any of the three scales.</p>
+      </div>
+      <figure class="how-fig">
+        <svg viewBox="0 0 680 206" role="img" aria-label="The Q-learning update: the new estimate equals the old estimate plus alpha times the TD error. The TD target is the reward plus gamma times the best estimate from where it lands; the TD error is the target minus the old estimate." style="margin-top:44px">
+          <g font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="26" fill="currentColor" text-anchor="middle">
+            <text x="48" y="118">Q(s,a)</text><text x="106" y="118">←</text><text x="166" y="118">Q(s,a)</text><text x="218" y="118">+</text><text x="244" y="118">α</text>
+            <text x="270" y="118">[</text><text x="296" y="118" fill="#a9e4ff">r</text><text x="322" y="118">+</text><text x="348" y="118">γ</text>
+            <text x="432" y="118">max Q(s′,a′)</text><text x="516" y="118">−</text><text x="574" y="118">Q(s,a)</text><text x="626" y="118">]</text>
+          </g>
+          <g stroke="currentColor" stroke-opacity=".45" fill="none">
+            <line x1="48" y1="130" x2="48" y2="146"/><line x1="166" y1="130" x2="166" y2="146"/><line x1="244" y1="130" x2="244" y2="178"/><line x1="296" y1="130" x2="296" y2="146"/><line x1="348" y1="130" x2="348" y2="178"/><line x1="440" y1="130" x2="440" y2="146"/>
+          </g>
+          <g stroke="#a9e4ff" stroke-opacity=".8" fill="none">
+            <path d="M270 38 v-8 h356 v8"/><path d="M286 82 v-8 h224 v8"/>
+          </g>
+          <g font-size="11" fill="currentColor" text-anchor="middle">
+            <text x="48" y="164">new estimate</text><text x="166" y="164">old estimate</text><text x="296" y="164">points now</text><text x="440" y="164">best estimate at s′</text>
+            <text x="244" y="196">step size</text><text x="348" y="196">discount factor</text>
+            <text x="448" y="20" fill="#a9e4ff">TD error</text><text x="398" y="64" fill="#a9e4ff">TD target</text>
+          </g>
+        </svg>
+        <figcaption>The Q-learning update (Watkins, 1989). s is the state (square and step), a the move, s′ where it lands, r the points it got.</figcaption>
+      </figure>
+    </section>
+
+    <section class="how-sec">
+      <div class="how-text">
+        <h3><span>05</span> What you hear</h3>
+        <p>Each move plays the note under the agent as an eighth note at the chosen tempo; the bigger the surprise (the TD error), the louder the note. Early on almost every note is a surprise, and the music is loud and scattered. Once the agent has learned, its predictions come true, the notes soften, and the same sequences come back again and again.</p>
+        <p>Many routes score equally well, so each run settles on its own tune. Press Reset and train again to hear another.</p>
+        <p>Further reading: <a href="https://cs.stanford.edu/people/karpathy/reinforcejs/gridworld_td.html" target="_blank" rel="noopener">REINFORCEjs GridWorld TD</a> by Andrej Karpathy, which inspired this page, and <a href="http://incompleteideas.net/book/the-book-2nd.html" target="_blank" rel="noopener">Reinforcement Learning: An Introduction</a> by Sutton and Barto, chapter 6.</p>
+        <p class="credits">Designed and built by <a href="https://github.com/yueningcai" target="_blank" rel="noopener">Yuening Cai</a>, in collaboration with Claude (Anthropic) and Gemini (Google).</p>
+      </div>
+    </section>
+  </article>
+</div>
+
+<script>
+(() => {
+'use strict';
+const N = 8, T = 8, A = 8;            // 8×8 board, 8-step phrase, 8 king moves
+const DX = [0, 1, 0, -1, 1, 1, -1, -1], DY = [-1, 0, 1, 0, -1, 1, 1, -1];
+const REV = [2, 3, 0, 1, 6, 7, 4, 5];  // the move that goes straight back
+const BASE = 36, UP = 8;   // C2 at bottom left; +1 semitone per square to the right, +8 per row up
+const PC = ['C','D♭','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+const MODES = {   // all on C; 'char' is the third (major or minor), 'extra' a characteristic note placed just before the note it resolves to
+  ionian:   { name:'Major',             set:[0,2,4,5,7,9,11], char:4, deg:'the major third', mood:'major', desc:'The Western major scale (Ionian), standard since the 1600s. Bright and settled. Pop, hymns, nursery rhymes.' },
+  phrygdom: { name:'Phrygian dominant', set:[0,1,4,5,7,8,10], char:4, deg:'the major third', mood:'major', extra:{ pc:1, b:6, role:'flat 2nd', deg:'the flat 2nd', line:'it sinks down into C' },
+              desc:'The 5th mode of harmonic minor, and the same notes as the Arabic maqam Hijaz. The D♭ just above C sounds Spanish or Middle Eastern at once. Flamenco, klezmer, metal.' },
+  harmonic: { name:'Harmonic minor',    set:[0,2,3,5,7,8,11], char:3, deg:'the minor third', mood:'minor', extra:{ pc:11, b:6, role:'leading tone', deg:'the leading tone', line:'it pulls up into C' },
+              desc:'The minor scale of classical harmony: natural minor with its 7th raised, so B leads up to C as in major. Dark and dramatic, with a slightly exotic leap from A♭ to B. Classical minor keys, film scores, neoclassical metal.' }
+};
+for (const k in MODES) MODES[k].pcs = new Set(MODES[k].set);
+
+const ALPHA = 0.2, GAMMA = 0.92, TAU = 6000, EPS_MIN = 0.02;   // plain one-step Q-learning: one Q-value changes per move
+const Q0 = 0;
+// five levels: +10 tonic on step 8 · +5 a target note in time · 0 any other note in the scale · −5 a missed target · −10 outside the scale
+const R = { out:-10, other:0, hit:5, tonic:10, miss:-5, missEnd:-5 };
+const epsAt = t => EPS_MIN + (1-EPS_MIN)*Math.exp(-t/TAU);
+let modeKey = 'ionian';
+let qView = 'moves';   // Q table view: 'moves' = the agent's moves from its square, 'max' = max Q of every square
+let autoEps = true;   // ε falls on its own; dragging the slider takes manual control
+let Q = new Float32Array(N*N*T*A).fill(Q0);
+let tried = new Uint8Array(N*N*T*A);   // which (cell, beat, move) the agent has actually experienced
+const randomStart = () => ({ x:(Math.random()*N)|0, y:(Math.random()*N)|0, t:0, pd:-1 });   // the agent starts on a random square
+let ag = randomStart();     // t = the beat about to be played (0..7), pd = last move
+let steps = 0, phrases = 0, annealT = 0, eps = 1;
+let lastR = null, seqPts = 0, lastSeqPts = null, seqHist = [];   // points: last note, the sequence so far, completed sequences
+let recent = [], hist = [], tape = [], trail = [], ripples = [], seq = [];
+let qVer = 0;   // bumps whenever a Q-value changes, so drawings can tell when to redraw
+let playing = false, lastStep = 0, rest = false;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const $ = id => document.getElementById(id);
+const midiAt = (x,y) => BASE + x + UP*(N-1-y);
+const nameOf = m => PC[m%12] + (Math.floor(m/12)-1);
+const inKey = m => MODES[modeKey].pcs.has(m%12);
+const windows = () => {   // step 1 the third · step 4 the dominant · the scale's extra note, if any · step 8 home (in rewardFor)
+  const md = MODES[modeKey], w = [ { pc:md.char, b0:0, b1:0, kind:'char' }, { pc:7, b0:3, b1:3, kind:'fifth' } ];
+  if (md.extra) w.push({ pc:md.extra.pc, b0:md.extra.b, b1:md.extra.b, kind:'extra' });
+  return w;
+};
+const sIdx = (x,y,t) => ((t*N + y)*N + x)*A;
+const onBoard = (x,y,a) => { const nx = x+DX[a], ny = y+DY[a]; return nx >= 0 && nx < N && ny >= 0 && ny < N; };
+const allowed = (x,y,pd,a) => onBoard(x,y,a) && !(pd >= 0 && a === REV[pd]);
+
+function bestQ(x,y,t,pd){ const i = sIdx(x,y,t); let m = -Infinity; for (let a=0;a<A;a++) if (allowed(x,y,pd,a) && Q[i+a] > m) m = Q[i+a]; return m; }
+function greedy(x,y,t,pd){
+  const i = sIdx(x,y,t); let best = -Infinity, bs = [];
+  for (let a=0;a<A;a++){ if (!allowed(x,y,pd,a)) continue; const v = Q[i+a]; if (v > best + 1e-9){ best = v; bs = [a]; } else if (Math.abs(v-best) <= 1e-9) bs.push(a); }
+  return bs[(Math.random()*bs.length)|0];
+}
+function greedyDet(x,y,t){ const i = sIdx(x,y,t); let b = -1; for (let a=0;a<A;a++) if (onBoard(x,y,a) && (b < 0 || Q[i+a] > Q[i+b])) b = a; return b; }
+function rewardFor(pc, prev, t){
+  if (!MODES[modeKey].pcs.has(pc)) return { r:R.out, kind:'out' };
+  if (t === 7) return pc === 0 ? { r:R.tonic, kind:'tonic' } : { r:R.missEnd, kind:'missEnd' };
+  for (const w of windows()){
+    if (t < w.b0 || t > w.b1) continue;
+    const hitBefore = t > w.b0 && prev === w.pc;
+    if (pc === w.pc && !hitBefore) return { r:R.hit, kind:w.kind };
+    if (t === w.b1 && !hitBefore && pc !== w.pc) return { r:R.miss, kind:'miss-' + w.kind };
+  }
+  return { r:R.other, kind:'free' };
+}
+function reward(x,y,t,a){ return rewardFor(midiAt(x+DX[a], y+DY[a])%12, midiAt(x,y)%12, t); }
+function learn(u){
+  const i = sIdx(u.x,u.y,u.t) + u.a; tried[i] = 1; qVer++;
+  const td = u.r + GAMMA*bestQ(u.nx,u.ny,(u.t+1)%T,u.a) - Q[i];
+  Q[i] += ALPHA*td; return td;
+}
+function step(audible){
+  if (autoEps){ eps = epsAt(annealT); annealT++; }
+  const L = []; for (let a=0;a<A;a++) if (allowed(ag.x,ag.y,ag.pd,a)) L.push(a);
+  const a = Math.random() < eps ? L[(Math.random()*L.length)|0] : greedy(ag.x,ag.y,ag.t,ag.pd);
+  const rw = reward(ag.x,ag.y,ag.t,a), nx = ag.x+DX[a], ny = ag.y+DY[a];
+  lastR = rw.r; seqPts += rw.r;
+  if (ag.t === 7){ lastSeqPts = seqPts; seqHist.push(seqPts); if (seqHist.length > 50) seqHist.shift(); seqPts = 0; }
+  const u = { x:ag.x, y:ag.y, t:ag.t, a, r:rw.r, nx, ny };
+  const td = learn(u);
+  const beat = ag.t;
+  ag = { x:nx, y:ny, t:(beat+1)%T, pd:a }; steps++; if (beat === 7) phrases++;
+  const m = midiAt(nx,ny), k = inKey(m);
+  recent.push(k); if (recent.length > 48) recent.shift();
+  if (steps % 4 === 0){ hist.push(ratio()); if (hist.length > 260) hist.shift(); }
+  if (audible){
+    const now = performance.now();
+    if (beat === 0) seq = [];
+    seq[beat] = { n:PC[m%12], kind:rw.kind };
+    tape.push({ n:nameOf(m), k, beat }); if (tape.length > 22) tape.shift();
+    trail.push({ x:nx, y:ny, k, t:now, jx:(Math.random()-.5)*.34, jy:(Math.random()-.5)*.34 }); if (trail.length > 48) trail.shift();
+    if (!reduceMotion){ ripples.push({ x:nx, y:ny, k, t:now }); if (ripples.length > 24) ripples.shift(); }
+    playNote(m, 0.45 + 0.55*Math.min(1, Math.abs(td)/8), nx, beat === 7 ? 2 : beat === 0 ? 1.2 : 1);   // step 8, home, rings longest
+    narrate(beat, rw, m);
+  }
+  return beat;
+}
+const ratio = () => recent.length ? recent.filter(Boolean).length / recent.length : 0;
+
+/* ---------------- audio ---------------- */
+let AC = null, bus = null;
+const mtof = m => 440*Math.pow(2,(m-69)/12);
+function initAudio(){
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4;
+  const master = AC.createGain(); master.gain.value = 0.8;
+  comp.connect(master); master.connect(AC.destination);
+  bus = AC.createGain(); bus.connect(comp);
+  const conv = AC.createConvolver(); const len = AC.sampleRate*3, ir = AC.createBuffer(2,len,AC.sampleRate);
+  for (let c=0;c<2;c++){ const d = ir.getChannelData(c); for (let i=0;i<len;i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/len,3.2); }
+  conv.buffer = ir; const wet = AC.createGain(); wet.gain.value = 0.32; bus.connect(conv); conv.connect(wet); wet.connect(comp);
+}
+function playNote(m, vel, x, len = 1, at = 0, dest = bus){
+  if (!AC) return;
+  const t = AC.currentTime + at, f = mtof(m);
+  const g = AC.createGain(); let out = g;
+  if (AC.createStereoPanner){ const p = AC.createStereoPanner(); p.pan.value = (x/(N-1))*1.2 - .6; g.connect(p); out = p; }
+  out.connect(dest);
+  {
+    g.gain.setValueAtTime(0.0001, t);
+    const o = AC.createOscillator(); o.type = 'sine'; o.frequency.value = f; o.connect(g);
+    g.gain.exponentialRampToValueAtTime(0.24*vel, t+0.01); g.gain.exponentialRampToValueAtTime(0.0001, t+0.95*len);
+    o.start(t); o.stop(t+1*len+0.05);
+  }
+}
+
+/* ---------------- drawing ---------------- */
+const cv = $('board'), g = cv.getContext('2d');
+const sp = $('spark'), sg = sp.getContext('2d');
+let DPR = 1;
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  const r = cv.getBoundingClientRect(); cv.width = Math.max(1, Math.round(r.width*DPR)); cv.height = Math.max(1, Math.round(r.height*DPR));
+  const s = sp.getBoundingClientRect(); sp.width = Math.max(1, Math.round(s.width*DPR)); sp.height = Math.max(1, Math.round(s.height*DPR)); sparkKey = ''; fieldKey = '';
+}
+new ResizeObserver(resize).observe(cv); new ResizeObserver(resize).observe(sp);
+// Arrows only make sense once the agent has learned something on this step
+function layerLearned(t){
+  let lo = Infinity, hi = -Infinity;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){ const v = bestQ(x,y,t,-1); if (v < lo) lo = v; if (v > hi) hi = v; }
+  return hi - lo > 1e-4;
+}
+function draw(now){
+  if (!cv.width) return;
+  drawField(now);
+  drawSpark();
+  if (cube.ok) drawCube(now); else drawMachine();
+}
+function trailPts(c){ return trail.map(p => ({ x:(p.x+.5+p.jx)*c, y:(p.y+.5+p.jy)*c, k:p.k, t:p.t })); }
+
+// Layers, bottom to top: faint blue/orange haze (in the scale or not) · note names and × · a fixed circle for every note
+// in the scale, holding the points it earns on the coming step (lit while that number is positive) · arrows · ripples · trail · the agent
+const BLUE = '150,210,255', ORANGE = '255,157,122';
+// The parts of the grid that only change with the scale or the canvas size, drawn once into an offscreen canvas
+const fieldBg = document.createElement('canvas'); let fieldKey = '';
+function drawFieldBg(W){
+  const c = W/N, md = MODES[modeKey], b = fieldBg.getContext('2d');
+  fieldBg.width = fieldBg.height = W;
+  b.fillStyle = '#05070a'; b.fillRect(0,0,W,W);
+  b.globalCompositeOperation = 'lighter';
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+    const k = md.pcs.has(midiAt(x,y)%12), cx = (x+.5)*c, cy = (y+.5)*c, rad = c*0.62;
+    const gr = b.createRadialGradient(cx,cy,0,cx,cy,rad);
+    gr.addColorStop(0, k ? `rgba(${BLUE},0.06)` : `rgba(255,140,110,0.015)`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    b.fillStyle = gr; b.fillRect(cx-rad,cy-rad,rad*2,rad*2);
+  }
+  b.globalCompositeOperation = 'source-over';
+  b.fillStyle = 'rgba(190,210,222,0.2)';
+  for (let i=1;i<N;i++) for (let j=1;j<N;j++){ const px = i*c, py = j*c; b.fillRect(px-2*DPR, py, 4*DPR, DPR*0.8); b.fillRect(px, py-2*DPR, DPR*0.8, 4*DPR); }
+  b.textAlign = 'left'; b.textBaseline = 'top'; b.font = `${Math.round(8.5*DPR)}px 'Martian Mono', monospace`;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+    const m = midiAt(x,y), k = md.pcs.has(m%12), cx = (x+.5)*c, cy = (y+.5)*c;
+    b.fillStyle = k ? 'rgba(214,236,250,0.72)' : `rgba(${ORANGE},0.28)`;
+    b.fillText(nameOf(m), x*c + 6*DPR, y*c + 6*DPR);
+    if (!k){ b.strokeStyle = `rgba(${ORANGE},0.32)`; b.lineWidth = DPR; const s = 3*DPR;
+      b.beginPath(); b.moveTo(cx-s,cy-s); b.lineTo(cx+s,cy+s); b.moveTo(cx+s,cy-s); b.lineTo(cx-s,cy+s); b.stroke(); }
+  }
+}
+function drawField(now){
+  const W = cv.width, c = W/N, md = MODES[modeKey];
+  const key = `${W}|${modeKey}|${DPR}|${document.fonts ? document.fonts.status : ''}`;
+  if (key !== fieldKey){ drawFieldBg(W); fieldKey = key; }
+  g.globalCompositeOperation = 'source-over'; g.drawImage(fieldBg, 0, 0);
+  const pulse = 0.5 + 0.5*Math.sin(now/380), prev = midiAt(ag.x,ag.y)%12;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+    const pc = midiAt(x,y)%12, cx = (x+.5)*c, cy = (y+.5)*c;
+    if (!md.pcs.has(pc)) continue;
+    const rv = rewardFor(pc, prev, ag.t).r, lit = rv > 0, al = lit ? 0.6 + 0.4*pulse : 0.32;
+    g.strokeStyle = `rgba(169,228,255,${al})`; g.lineWidth = (lit ? 1.4 : 1)*DPR;
+    g.beginPath(); g.arc(cx,cy,c*0.3,0,Math.PI*2); g.stroke();
+    if (rv === 0) continue;                       // 0 stays an empty circle, so the notes that matter stand out
+    const txt = rv > 0 ? '+' + rv : '−' + Math.abs(rv);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `italic ${Math.round(c*0.28)}px 'Instrument Serif', Georgia, serif`;
+    g.fillStyle = lit ? `rgba(214,240,255,${al})` : 'rgba(169,228,255,0.42)';
+    g.fillText(txt, cx - c*0.01, cy + c*0.02);
+  }
+  // 4) policy: the move it currently thinks is best from each cell on this step
+  if (layerLearned(ag.t)){
+    g.strokeStyle = g.fillStyle = 'rgba(214,236,250,0.4)'; g.lineWidth = 1.5*DPR; g.lineCap = 'round'; g.lineJoin = 'round';
+    for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+      const a = greedyDet(x,y,ag.t), cx = (x+.5)*c, cy = (y+.5)*c, n = Math.hypot(DX[a],DY[a]);
+      const ux = DX[a]/n, uy = DY[a]/n, o = c*0.34, L = c*0.11, h = 4*DPR;
+      const x1 = cx+ux*o, y1 = cy+uy*o, x2 = cx+ux*(o+L), y2 = cy+uy*(o+L);
+      g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+      g.beginPath(); g.moveTo(x2+ux*h*0.6, y2+uy*h*0.6); g.lineTo(x2-uy*h*0.7-ux*h*0.5, y2+ux*h*0.7-uy*h*0.5); g.lineTo(x2+uy*h*0.7-ux*h*0.5, y2-ux*h*0.7-uy*h*0.5); g.closePath(); g.fill();
+    }
+  }
+  for (const r of ripples){
+    const age = (now - r.t)/1400; if (age < 0 || age > 1) continue;
+    g.strokeStyle = `rgba(${r.k ? BLUE : ORANGE},${0.5*(1-age)})`;
+    g.lineWidth = DPR; g.beginPath(); g.arc((r.x+.5)*c,(r.y+.5)*c, c*(0.15+1.3*age), 0, Math.PI*2); g.stroke();
+  }
+  const P = trailPts(c); g.lineCap = 'round';
+  for (let i=1;i<P.length-1;i++){
+    const a = i/(P.length-1), p0 = P[i-1], p1 = P[i], p2 = P[i+1];
+    g.strokeStyle = p1.k ? `rgba(200,236,255,${0.7*a})` : `rgba(${ORANGE},${0.7*a})`;
+    g.lineWidth = (0.6 + 1.2*a)*DPR;
+    g.beginPath(); g.moveTo((p0.x+p1.x)/2,(p0.y+p1.y)/2); g.quadraticCurveTo(p1.x,p1.y,(p1.x+p2.x)/2,(p1.y+p2.y)/2); g.stroke();
+  }
+  // the agent
+  const last = P[P.length-1]; const ax = last ? last.x : (ag.x+.5)*c, ay = last ? last.y : (ag.y+.5)*c;
+  const hg = g.createRadialGradient(ax,ay,0,ax,ay,c*0.5); hg.addColorStop(0,'rgba(220,245,255,0.55)'); hg.addColorStop(1,'rgba(220,245,255,0)');
+  g.fillStyle = hg; g.fillRect(ax-c*.5, ay-c*.5, c, c);
+  g.fillStyle = '#f2fbff'; g.beginPath(); g.arc(ax,ay,3.2*DPR,0,Math.PI*2); g.fill();
+}
+
+const mv = $('mview'), mg = mv.getContext('2d');
+// The agent's choice right now: each move from its square, keyed by the square it lands on.
+function moveOptions(){
+  const o = new Map(), base = sIdx(ag.x,ag.y,ag.t), pc = midiAt(ag.x,ag.y)%12; let bestV = -Infinity, n = 0;
+  for (let a=0;a<A;a++){
+    if (!onBoard(ag.x,ag.y,a)) continue; const nx = ag.x+DX[a], ny = ag.y+DY[a];
+    if (!allowed(ag.x,ag.y,ag.pd,a)){ o.set(ny*N + nx, { a, back:true }); continue; }
+    const v = Q[base+a]; if (v > bestV) bestV = v; n++;
+    o.set(ny*N + nx, { a, nx, ny, v, q: tried[base+a] ? v : null, r: rewardFor(midiAt(nx,ny)%12, pc, ag.t).r, next: bestQ(nx,ny,(ag.t+1)%T,a) });
+  }
+  let ties = 0; for (const m of o.values()) if (!m.back && Math.abs(m.v - bestV) < 1e-9){ m.best = true; ties++; }
+  if (ties === n) for (const m of o.values()) m.best = false;      // all equal (e.g. nothing tried yet): no favourite
+  return o;
+}
+function moveTip(m, name){
+  if (m.back) return `${name} · where it came from: no going back`;
+  const f = v => v.toFixed(1).replace('-', '−'), aim = `${pts(m.r)} + 0.92 × ${f(m.next)} = ${f(m.r + GAMMA*m.next)}`;
+  return `move to ${name} · Q ${m.q === null ? '0 (not tried yet)' : f(m.q)} · TD target ${aim}`;
+}
+function triedMax(x,y,t){ const i = sIdx(x,y,t); let m = null; for (let a=0;a<A;a++) if (tried[i+a] && (m === null || Q[i+a] > m)) m = Q[i+a]; return m; }
+
+/* ---------------- the Q-table as a cube ----------------
+   8 layers, one per step (step 1 in front). Only the layer of the step about to be played is lit, with numbers:
+   either the agent's own moves, Q(s, a), or every square's max Q. Turning the cube shows the other layers as faint outlines. */
+const cube = { ok:false, rot:0, zoom:1, tzoom:1, yaw:0, pitch:0, tyaw:0, tpitch:0, dirty:true, key:'' };
+function initCube(){
+  if (!window.THREE) return;
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true }); } catch(e) { return; }
+  const wrap = $('qcube'); $('mview').hidden = true;
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); renderer.setClearColor(0x000000, 0);
+  wrap.insertBefore(renderer.domElement, wrap.firstChild);
+  const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-5, 5, 5, -5, -50, 50);
+  const root = new THREE.Group(); scene.add(root);
+  const GAP = 1.25, zOf = b => (3.5 - b)*GAP;           // step 1 in front
+  // 512 tiles, additive so stacked layers add up like light
+  const tiles = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.84, 0.84),
+    new THREE.MeshBasicMaterial({ transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }), N*N*T);
+  const m4 = new THREE.Matrix4();
+  for (let b=0;b<T;b++) for (let y=0;y<N;y++) for (let x=0;x<N;x++){ m4.makeTranslation(x - 3.5, 3.5 - y, zOf(b)); tiles.setMatrixAt((b*N + y)*N + x, m4); }
+  tiles.instanceMatrix.needsUpdate = true; root.add(tiles);
+  // a fine grid for each layer
+  const gpts = []; for (let i=0;i<=N;i++){ const v = i - 4; gpts.push(-4,v,0, 4,v,0, v,-4,0, v,4,0); }
+  const ggeo = new THREE.BufferGeometry(); ggeo.setAttribute('position', new THREE.Float32BufferAttribute(gpts, 3));
+  const grids = [], labels = [];
+  for (let b=0;b<T;b++){
+    const ln = new THREE.LineSegments(ggeo, new THREE.LineBasicMaterial({ color:0x96d2ff, transparent:true, opacity:0.1, depthWrite:false }));
+    ln.position.z = zOf(b); root.add(ln); grids.push(ln);
+    const lc = document.createElement('canvas'); lc.width = 256; lc.height = 64; const lx = lc.getContext('2d');
+    lx.font = "28px 'Martian Mono', monospace"; lx.fillStyle = '#a9e4ff'; lx.textBaseline = 'middle'; lx.fillText('step ' + (b+1), 4, 32);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(lc), transparent:true, depthWrite:false, opacity:0 }));
+    sp.scale.set(1.7, 0.42, 1); sp.position.set(-3.2, 4.45, zOf(b)); root.add(sp); labels.push(sp);
+  }
+  // numbers for the facing layer, drawn into a texture
+  const nc = document.createElement('canvas'); nc.width = nc.height = 1024; const nx = nc.getContext('2d');
+  const ntex = new THREE.CanvasTexture(nc);
+  const nplane = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshBasicMaterial({ map:ntex, transparent:true, depthWrite:false, depthTest:false }));
+  root.add(nplane);
+  Object.assign(cube, { ok:true, renderer, scene, cam, root, tiles, grids, labels, nx, ntex, nplane, zOf, color:new THREE.Color(), wrap });
+  // drag to turn; a click without dragging does nothing
+  let drag = null; const pts = new Map(); let pinch = null;
+  const pdist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  wrap.addEventListener('pointerdown', e => {
+    if (e.target.id === 'qfront') return;
+    pts.set(e.pointerId, { x:e.clientX, y:e.clientY }); wrap.setPointerCapture(e.pointerId);
+    if (pts.size === 2){ drag = null; pinch = { d:pdist(), z:cube.tzoom }; return; }
+    drag = { x:e.clientX, y:e.clientY, yaw:cube.tyaw, pitch:cube.tpitch }; wrap.classList.add('dragging');
+  });
+  wrap.addEventListener('wheel', e => {                       // trackpad pinch arrives as ctrl + wheel; plain scrolling still scrolls the page
+    if (!e.ctrlKey) return; e.preventDefault();
+    cube.tzoom = Math.max(0.7, Math.min(3, cube.tzoom*Math.exp(-e.deltaY*0.01))); $('qfront').hidden = false;
+  }, { passive:false });
+  wrap.addEventListener('pointermove', e => {
+    if (pts.has(e.pointerId)) pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pinch && pts.size === 2){ cube.tzoom = Math.max(0.7, Math.min(3, pinch.z*pdist()/pinch.d)); $('qfront').hidden = false; return; }
+    if (drag){ cube.tyaw = drag.yaw + (e.clientX - drag.x)*0.008; cube.tpitch = Math.max(-1.2, Math.min(1.2, drag.pitch + (e.clientY - drag.y)*0.008)); $('qfront').hidden = false; }
+    hoverCube(e);
+  });
+  const end = e => { const moved = drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6;
+    if (drag && !moved && e.pointerType !== 'mouse') hoverCube(e);          // a tap shows a layer on touch screens
+    pts.delete(e.pointerId); if (pts.size < 2) pinch = null; drag = null; wrap.classList.remove('dragging'); };
+  wrap.addEventListener('pointerup', end); wrap.addEventListener('pointercancel', end);
+  wrap.addEventListener('pointerleave', () => { $('qtip').hidden = true; });
+  $('qfront').addEventListener('click', () => { cube.dirty = true; cube.tyaw = 0; cube.tpitch = 0; cube.tzoom = 1; $('qfront').hidden = true; });
+  new ResizeObserver(() => { const w = wrap.clientWidth; renderer.setSize(w, w, false); cube.dirty = true; }).observe(wrap);
+}
+let cubeCache = null;
+function cubeValues(){
+  if (cubeCache && cubeCache.ver === qVer) return cubeCache;
+  let lo = Infinity, hi = -Infinity; const vals = new Array(N*N*T);
+  for (let b=0;b<T;b++) for (let y=0;y<N;y++) for (let x=0;x<N;x++){ const q = triedMax(x,y,b); vals[(b*N + y)*N + x] = q; if (q !== null){ if (q < lo) lo = q; if (q > hi) hi = q; } }
+  return (cubeCache = { vals, lo, hi, ver:qVer });
+}
+function hoverCube(e){
+  const tip = $('qtip'), r = cube.wrap.getBoundingClientRect();
+  const ray = new THREE.Raycaster(), p = new THREE.Vector2(((e.clientX - r.left)/r.width)*2 - 1, -((e.clientY - r.top)/r.height)*2 + 1);
+  ray.setFromCamera(p, cube.cam); ray.ray.origin.addScaledVector(ray.ray.direction, -40);   // ortho rays start mid-depth; back them off so front layers count
+  const t1 = ag.t, hit = ray.intersectObject(cube.tiles).find(h => Math.floor(h.instanceId/64) === t1);   // only the agent's layer answers
+  if (!hit){ tip.hidden = true; return; }
+  const i = hit.instanceId % 64, x = i%8, y = (i/8)|0, name = nameOf(midiAt(x,y)), me = x === ag.x && y === ag.y;
+  if (qView === 'max'){
+    const q = triedMax(x,y,t1), qs = q === null ? 'not tried yet (0)' : 'max Q ' + q.toFixed(1).replace('-', '−');
+    const m = moveOptions().get(i), nxt = m && !m.back ? ` · moving here, it would face step ${(t1+1)%T + 1}: max Q ${m.next.toFixed(1).replace('-', '−')} there` : '';
+    tip.textContent = me ? `${name} · the agent · ${qs}, just used to update its last move` : `step ${t1+1} · ${name} · ${qs}${nxt}`;
+  } else {
+    const m = moveOptions().get(i);
+    if (!m && !me){ tip.hidden = true; return; }
+    tip.textContent = m ? moveTip(m, name) : `${name} · the agent, about to play step ${t1+1}`;
+  }
+  tip.hidden = false; const tw = tip.offsetWidth, lx = e.clientX - r.left;
+  tip.style.left = Math.min(lx, r.width - tw - 14) + 'px'; tip.style.top = (e.clientY - r.top) + 'px';
+}
+function drawCube(now){
+  const C = cube, t1 = ag.t, w = C.wrap.clientWidth; if (!w) return;
+  C.yaw += (C.tyaw - C.yaw)*0.18; C.pitch += (C.tpitch - C.pitch)*0.18; C.zoom += (C.tzoom - C.zoom)*0.2;
+  C.rot = Math.min(1, Math.hypot(C.yaw, C.pitch)/0.45);
+  const key = [qVer, t1, ag.x, ag.y, ag.pd, qView, w, C.yaw.toFixed(4), C.pitch.toFixed(4), C.zoom.toFixed(4)].join('|');
+  if (key === C.key && !C.dirty) return;         // nothing changed: keep the last frame
+  C.key = key;
+  C.root.rotation.set(C.pitch, C.yaw, 0);
+  const s = (4.05 + 2.9*C.rot)/C.zoom; C.cam.left = -s; C.cam.right = s; C.cam.top = s; C.cam.bottom = -s; C.cam.updateProjectionMatrix();
+  const { vals, lo, hi } = cubeValues(), span = hi - lo, opts = moveOptions();
+  const bright = q => { const v = span > 1e-6 ? Math.max(0, Math.min(1, (q - lo)/span)) : 0.5; return 0.1 + 0.75*Math.pow(v, 1.6); };
+  for (let b=0;b<T;b++){
+    const lit = t1, isLit = b === lit;                      // the step it is about to play
+    C.grids[b].material.opacity = b === lit ? 0.18 : 0.06*C.rot;
+    C.labels[b].material.opacity = C.rot*(b === lit ? 1 : 0.35);
+    for (let k=0;k<64;k++){
+      const i = b*64 + k, q = vals[i], m = isLit ? opts.get(k) : null;
+      // the agent's layer: its moves, lit by what each is worth; other layers: a flat, very faint tint where tried
+      const base = !isLit ? (q === null ? 0 : 0.012*C.rot)                                   // other layers: a flat, faint tint where tried
+        : qView === 'max' ? (q === null ? 0.035 : bright(q))                                  // max view: every square by its max Q
+        : (m && !m.back ? (m.q === null ? 0.035 : bright(m.q)) : 0.012);                   // moves view: only the agent's moves
+      C.color.setRGB(0.59*base, 0.82*base, 1.0*base);
+      C.tiles.setColorAt(i, C.color);
+    }
+  }
+  C.tiles.instanceColor.needsUpdate = true;
+  // numbers on the facing layer
+  const L = t1;
+  C.nplane.position.z = C.zOf(L) + 0.02;
+  {
+    const x2 = C.nx, cs = 128; x2.clearRect(0,0,1024,1024);
+    x2.textAlign = 'center'; x2.textBaseline = 'middle'; x2.font = "30px 'Martian Mono', monospace";
+    if (qView === 'max') for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+      const q = vals[(L*N + y)*N + x];
+      x2.fillStyle = q === null ? 'rgba(214,236,250,0.3)' : 'rgba(234,246,255,0.92)';
+      x2.fillText(q === null ? '0' : q.toFixed(1).replace('-', '−'), (x+.5)*cs, (y+.5)*cs);
+    }
+    else for (const [k, m] of opts){
+      const x = k%N, y = (k/N)|0;
+      if (m.back){                                  // where it came from: a dashed box with a dashed cross, no going back
+        const a = x*cs + 14, c2 = y*cs + 14, d = cs - 28;
+        x2.strokeStyle = 'rgba(255,157,122,0.5)'; x2.lineWidth = 3; x2.setLineDash([10, 8]); x2.strokeRect(a, c2, d, d);
+        x2.beginPath(); x2.moveTo(a + 18, c2 + 18); x2.lineTo(a + d - 18, c2 + d - 18); x2.moveTo(a + d - 18, c2 + 18); x2.lineTo(a + 18, c2 + d - 18); x2.stroke();
+        x2.setLineDash([]); continue; }
+      x2.fillStyle = m.q === null ? 'rgba(214,236,250,0.3)' : 'rgba(234,246,255,0.95)';
+      x2.fillText(m.q === null ? '0' : m.q.toFixed(1).replace('-', '−'), (x+.5)*cs, (y+.5)*cs);
+      if (m.best){ x2.strokeStyle = '#a9e4ff'; x2.lineWidth = 4; x2.strokeRect(x*cs + 8, y*cs + 8, cs - 16, cs - 16); }
+    }
+    { x2.strokeStyle = '#f2fbff'; x2.lineWidth = 5; x2.strokeRect(ag.x*cs + 6, ag.y*cs + 6, cs - 12, cs - 12); }
+    C.ntex.needsUpdate = true; C.dirty = false;
+  }
+  C.nplane.material.opacity = 1 - 0.15*C.rot;
+  $('qfacing').textContent = C.rot < 0.08 ? `Facing step ${t1+1}` : `Step ${t1+1} lit · steps 1–8 stacked`;
+  C.renderer.render(C.scene, C.cam);
+}
+
+function drawMachine(){
+  const r = mv.getBoundingClientRect(), W = Math.round(r.width*DPR);
+  if (!W) return; if (mv.width !== W){ mv.width = W; mv.height = W; }
+  const c = W/N, t1 = ag.t, vals = [];
+  let lo = Infinity, hi = -Infinity;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){ const q = triedMax(x,y,t1); vals.push(q); if (q !== null){ if (q < lo) lo = q; if (q > hi) hi = q; } }
+  mg.fillStyle = '#000'; mg.fillRect(0,0,W,W);
+  mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.font = `${Math.round(c*0.19)}px 'Martian Mono', monospace`;
+  const opts = moveOptions(), mx = qView === 'max';
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+    const m = mx ? {} : opts.get(y*N + x), q = mx ? vals[y*N + x] : m && !m.back ? m.q : null;
+    if (!m || m.back){ mg.fillStyle = 'rgba(150,210,255,0.015)'; mg.fillRect(x*c+1, y*c+1, c-2, c-2); continue; }
+    if (m.best){ mg.strokeStyle = '#a9e4ff'; mg.lineWidth = 1.5*DPR; mg.strokeRect(x*c+3, y*c+3, c-6, c-6); }
+    if (q === null){ mg.fillStyle = 'rgba(150,210,255,0.02)'; mg.fillRect(x*c+1, y*c+1, c-2, c-2); mg.fillStyle = 'rgba(214,236,250,0.25)'; mg.fillText('0', (x+.5)*c, (y+.5)*c); continue; }
+    const v = hi - lo > 1e-6 ? (q - lo)/(hi - lo) : 0.5;
+    mg.fillStyle = `rgba(150,210,255,${0.05 + 0.5*v*v})`; mg.fillRect(x*c+1, y*c+1, c-2, c-2);
+    mg.fillStyle = 'rgba(214,236,250,0.8)'; mg.fillText(q.toFixed(1).replace('-', '−'), (x+.5)*c, (y+.5)*c);
+  }
+  mg.strokeStyle = '#f2fbff'; mg.lineWidth = 1.5*DPR; mg.strokeRect(ag.x*c+1, ag.y*c+1, c-2, c-2);
+}
+let sparkKey = '';
+function drawSpark(){
+  const W = sp.width, H = sp.height; if (!W) return;
+  const key = `${W}|${H}|${steps}|${hist.length}`; if (key === sparkKey) return; sparkKey = key;
+  sg.fillStyle = '#06080b'; sg.fillRect(0,0,W,H);
+  sg.strokeStyle = 'rgba(201,210,214,0.12)'; sg.lineWidth = DPR;
+  [0.25,0.5,0.75].forEach(f => { sg.beginPath(); sg.moveTo(0, H*f); sg.lineTo(W, H*f); sg.stroke(); });
+  sg.font = `${Math.round(8*DPR)}px 'Martian Mono', monospace`; sg.fillStyle = 'rgba(201,210,214,0.45)'; sg.textBaseline = 'top';
+  sg.fillText('100% in key', 4*DPR, 3*DPR); sg.textBaseline = 'bottom'; sg.fillText('0%', 4*DPR, H-3*DPR);
+  if (hist.length < 2) return;
+  const pad = 4*DPR, xs = i => pad + (W-pad*2)*i/(hist.length-1), ys = v => H - pad - (H-pad*2)*v;
+  sg.beginPath(); hist.forEach((v,i) => i ? sg.lineTo(xs(i),ys(v)) : sg.moveTo(xs(i),ys(v)));
+  sg.strokeStyle = '#a9e4ff'; sg.lineWidth = 1.5*DPR; sg.stroke();
+  sg.lineTo(xs(hist.length-1), H); sg.lineTo(xs(0), H); sg.closePath(); sg.fillStyle = 'rgba(169,228,255,0.08)'; sg.fill();
+  const lx = xs(hist.length-1), ly = ys(hist[hist.length-1]); sg.fillStyle = '#f2fbff'; sg.beginPath(); sg.arc(lx,ly,2.6*DPR,0,Math.PI*2); sg.fill();
+}
+
+/* ---------------- UI ---------------- */
+function buildModes(){
+  const wrap = $('modes'); wrap.innerHTML = '';
+  for (const k in MODES){
+    const b = document.createElement('button'); b.className = 'mode'; b.id = 'mode-' + k; b.textContent = MODES[k].name;
+    b.setAttribute('aria-pressed', String(k === modeKey));
+    b.addEventListener('click', () => setMode(k)); wrap.appendChild(b);
+  }
+}
+function startOver(){
+  Q = new Float32Array(N*N*T*A).fill(Q0); tried = new Uint8Array(N*N*T*A); steps = 0; phrases = 0; annealT = 0;
+  autoEps = true; eps = 1; qVer++; cube.dirty = true;
+  ag = randomStart(); rest = false;
+  recent = []; hist = []; tape = []; trail = []; ripples = []; seq = [];
+  lastR = null; seqPts = 0; lastSeqPts = null; seqHist = [];
+}
+function setMode(k){
+  if (k === modeKey) return;
+  if (aud){ aud.resume = false; stopAudition(); }
+  modeKey = k; startOver();
+  say(`Switched to ${MODES[k].name}. Different notes earn points now, so the agent starts again from zero.`, 3600, 5);
+  document.querySelectorAll('.mode').forEach(b => b.setAttribute('aria-pressed', String(b.id === 'mode-' + k)));
+  updateUI();
+}
+function beatText(){
+  const md = MODES[modeKey], ch = PC[md.char], t = ag.t, b = t + 1;
+  if (t === 0) return `<b>Next: step 1.</b> ${ch}, ${md.deg}, earns ${pts(R.hit)}: it says ${md.mood} straight away. Any other note ${pts(R.miss)}.`;
+  if (t === 3) return `<b>Next: step 4.</b> G, the dominant, earns ${pts(R.hit)}. Any other note ${pts(R.miss)}.`;
+  const x = md.extra;
+  if (x && t === x.b) return `<b>Next: step ${b}.</b> ${PC[x.pc]}, ${x.deg}, earns ${pts(R.hit)}: ${x.line}. Any other note ${pts(R.miss)}.`;
+  if (t === 7) return `<b>Next: step 8.</b> The sequence should come home: C ${pts(R.tonic)}, any other note ${pts(R.missEnd)}.`;
+  return `<b>Next: step ${b}.</b> No target on this step: any note in the scale ${pts(R.other)}, outside the scale ${pts(R.out)}.`;
+}
+function drawScaleFig(){
+  const md = MODES[modeKey], w = 46, x0 = 0, ROLE = { 0:'tonic', 7:'dominant' }; ROLE[md.char] = 'third'; if (md.extra) ROLE[md.extra.pc] = md.extra.role;
+  let out = '';
+  for (let pc=0; pc<12; pc++){
+    const cx = x0 + pc*w + w/2, inS = md.pcs.has(pc), role = ROLE[pc];
+    out += `<text x="${cx}" y="34" text-anchor="middle" font-size="13" fill="${inS ? 'currentColor' : '#ff9d7a'}" fill-opacity="${inS ? 1 : .6}">${PC[pc]}</text>`;
+    out += inS ? `<g class="pkey" data-m="${60 + pc}" role="button" tabindex="0" aria-label="Play ${PC[pc]}4"><rect x="${cx - w/2}" y="14" width="${w}" height="76" fill="transparent"/><circle cx="${cx}" cy="70" r="16" fill="${role ? 'rgba(169,228,255,.16)' : 'rgba(169,228,255,0)'}" stroke="#a9e4ff" stroke-opacity="${role ? 1 : .45}" stroke-width="${role ? 1.6 : 1}"/></g>`
+               : `<path d="M${cx-5} ${65}l10 10M${cx+5} ${65}l-10 10" stroke="#ff9d7a" stroke-opacity=".6"/>`;
+    if (role){ const low = !!ROLE[pc-1];                                       // a label right next to another: drop it a line so they don't collide
+      out += `<line x1="${cx}" y1="90" x2="${cx}" y2="${low ? 122 : 104}" stroke="#a9e4ff" stroke-opacity=".6"/><text x="${cx}" y="${low ? 140 : 122}" text-anchor="middle" font-size="12" fill="#a9e4ff">${role}</text>`; }
+  }
+  $('figScale').innerHTML = out;
+  $('figScaleCap').textContent = `${md.name}: ${md.set.map(p => PC[p]).join(' ')}. Tonic C, dominant G, third ${PC[md.char]} (${md.deg})${md.extra ? `, ${md.extra.role} ${PC[md.extra.pc]}` : ''}. Click a circle to hear it, from C4.`;
+  drawRewardFig();
+  drawSeqFig();
+}
+// The best-scoring sequence for the current scale, solved exactly (value iteration on the
+// Bellman optimality equation; the grid is deterministic), then played greedily until it loops.
+const bestSeqCache = {};
+function bestSequence(){
+  if (bestSeqCache[modeKey]) return bestSeqCache[modeKey];
+  const S = new Float64Array(N*N*T*A);
+  const top = (x,y,t,pd) => { const i = sIdx(x,y,t); let m = -Infinity, b = -1; for (let a=0;a<A;a++) if (allowed(x,y,pd,a) && S[i+a] > m){ m = S[i+a]; b = a; } return [m, b]; };
+  for (let it=0; it<220; it++) for (let t=0;t<T;t++) for (let y=0;y<N;y++) for (let x=0;x<N;x++){
+    const i = sIdx(x,y,t), pc = midiAt(x,y)%12;
+    for (let a=0;a<A;a++){ if (!onBoard(x,y,a)) continue; const nx = x+DX[a], ny = y+DY[a];
+      S[i+a] = rewardFor(midiAt(nx,ny)%12, pc, t).r + GAMMA*top(nx,ny,(t+1)%T,a)[0]; }
+  }
+  let x = 0, y = 7, t = 0, pd = -1; const out = [];
+  for (let s=0; s<24; s++){ const a = top(x,y,t,pd)[1]; x += DX[a]; y += DY[a]; pd = a; t = (t+1)%T; if (s >= 16) out.push(midiAt(x,y)); }
+  return (bestSeqCache[modeKey] = out);
+}
+// Section 03's timeline: what each step asks for in the current scale
+let rewardFigKey = null;
+function drawRewardFig(){
+  const svg = $('figReward'); if (!svg || rewardFigKey === modeKey) return; rewardFigKey = modeKey;
+  const md = MODES[modeKey], tgt = { 0:[md.char, R.hit], 3:[7, R.hit], 7:[0, R.tonic] }; if (md.extra) tgt[md.extra.b] = [md.extra.pc, R.hit];
+  let o = '<g font-size="12" fill="currentColor" text-anchor="middle">';
+  for (let i=0;i<8;i++){
+    const cx = 35 + i*75, t = tgt[i];
+    o += `<text x="${cx}" y="30">${i ? i+1 : 'step 1'}</text>`;
+    o += t ? `<rect x="${cx-35}" y="40" width="70" height="44" fill="#a9e4ff" fill-opacity="${i === 7 ? .18 : .1}" stroke="#a9e4ff"/><text x="${cx}" y="67" fill="#a9e4ff">${PC[t[0]]}  +${t[1]}</text>`
+           + `<line x1="${cx}" y1="86" x2="${cx}" y2="96" stroke="currentColor" stroke-opacity=".5"/><text x="${cx}" y="108">else −5</text>`
+           : `<rect x="${cx-35}" y="40" width="70" height="44" fill="none" stroke="currentColor" stroke-opacity=".35"/><text x="${cx}" y="67">·</text>`;
+  }
+  o += '<text x="298" y="150">any other note in the scale: 0</text><text x="298" y="176" fill="#ff9d7a">a note outside the scale, on any step: −10</text></g>';
+  svg.innerHTML = o;
+}
+let seqFigKey = null;
+function drawSeqFig(){
+  const svg = $('figSeq'); if (!svg || seqFigKey === modeKey) return; seqFigKey = modeKey;
+  const md = MODES[modeKey], seqN = bestSequence(), x0 = 30, cw = 68, y0 = 52, rh = 15;
+  const cx = s => x0 + s*cw + cw/2, cy = pc => y0 + (11-pc)*rh + rh/2;
+  let o = '';
+  const band = (s0, s1, pc, label, dy = 0) => {
+    o += `<rect x="${x0 + s0*cw + 6}" y="${cy(pc) - rh/2 - 1}" width="${(s1-s0+1)*cw - 12}" height="${rh + 2}" rx="${rh/2 + 1}" fill="#a9e4ff" fill-opacity=".12" stroke="#a9e4ff" stroke-opacity=".7"/>`;
+    o += `<text x="${(cx(s0) + cx(s1))/2}" y="${y0 - 14 - dy}" text-anchor="middle" font-size="12" fill="#a9e4ff">${label}</text>`;
+  };
+  band(0, 0, md.char, 'third'); band(3, 3, 7, 'dominant'); if (md.extra) band(md.extra.b, md.extra.b, md.extra.pc, md.extra.role, 16); band(7, 7, 0, 'tonic');
+  for (let pc=0; pc<12; pc++){
+    const inS = md.pcs.has(pc);
+    o += `<text x="${x0 - 14}" y="${cy(pc) + 4}" text-anchor="end" font-size="11" fill="${inS ? 'currentColor' : '#ff9d7a'}" fill-opacity="${inS ? .85 : .5}">${PC[pc]}</text>`;
+    for (let s=0; s<8; s++){
+      const X = cx(s), Y = cy(pc);
+      o += inS ? `<circle cx="${X}" cy="${Y}" r="4.5" fill="none" stroke="#a9e4ff" stroke-opacity=".3"/>`
+               : `<path d="M${X-3} ${Y-3}l6 6M${X+3} ${Y-3}l-6 6" stroke="#ff9d7a" stroke-opacity=".3"/>`;
+    }
+  }
+  seqN.forEach((m, s) => {
+    o += `<circle cx="${cx(s)}" cy="${cy(m%12)}" r="5.5" fill="#f2fbff"/>`;
+    o += `<text x="${cx(s)}" y="${y0 + 12*rh + 20}" text-anchor="middle" font-size="12" fill="currentColor">${s ? s+1 : 'step 1'}</text>`;
+    o += `<text x="${cx(s)}" y="${y0 + 12*rh + 38}" text-anchor="middle" font-size="12" fill="#a9e4ff">${PC[m%12]}</text>`;
+  });
+  svg.innerHTML = o;
+  $('figSeqCap').textContent = `The scale inside a sequence. Rows are the 12 notes, folded into one octave; columns are the 8 steps. White dots: the best-scoring sequence in ${md.name} on this grid, worked out exactly from the rules: ${seqN.map(m => PC[m%12]).join(' ')}. A trained agent plays this one or another worth as many points.`;
+}
+function updateUI(){
+  drawScaleFig();
+  $('beatline').innerHTML = beatText();
+  const md = MODES[modeKey], ch = PC[md.char];
+  $('modeDesc').textContent = md.desc;
+  const want = [ch, '', '', 'G', '', '', '', 'C']; if (md.extra) want[md.extra.b] = PC[md.extra.pc];
+  const now = playing ? (ag.t + 7) % 8 : -1;
+  $('seq').innerHTML = want.map((w,i) => { const n = seq[i], cls = !n ? '' : n.kind === 'out' ? ' bad' : n.kind.startsWith('miss') ? ' miss' : n.kind === 'free' ? '' : ' good';
+      return `<span class="beat${i === now ? ' now' : ''}"><i>${i+1}</i><b>${w || '·'}</b><em class="${cls.trim()}">${n ? n.n : ''}</em></span>`; }).join('');
+  $('tonal').textContent = recent.length ? Math.round(ratio()*100) + '%' : '—%';
+  $('tonalLbl').innerHTML = recent.length ? 'of the last 48<br>notes in key' : 'Press Play<br>to begin';
+  $('stSteps').textContent = steps.toLocaleString();
+  $('stPhr').textContent = phrases.toLocaleString();
+  $('stStage').textContent = (ag.t+1) + ' / 8';
+  $('ptNote').textContent = lastR === null ? '—' : pts(lastR);
+  $('ptSeq').textContent = lastSeqPts === null ? '—' : pts(lastSeqPts) + ' / ' + (R.tonic + R.hit*windows().length);
+  $('ptAvg').textContent = seqHist.length ? (seqHist.reduce((a,b) => a+b, 0)/seqHist.length).toFixed(1).replace('-', '−') : '—';
+  $('qempty').hidden = steps > 0;
+  $('eps').value = eps.toFixed(2); $('epsOut').textContent = eps.toFixed(2) + (autoEps ? ' auto' : ' manual');
+  $('tape').innerHTML = tape.map(t => `<span class="${t.k?'':'off'}">${t.n}</span>`).join('');
+}
+let capUntil = 0, capPri = 0, lastLesson = 0;
+function say(text, hold = 1400, pri = 0){
+  const now = performance.now();
+  if (now < capUntil && pri <= capPri) return;
+  $('caption').textContent = text; capUntil = now + hold; capPri = pri;
+}
+const pts = v => v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v);
+function narrate(beat, rw, m){
+  const md = MODES[modeKey], name = nameOf(m), ch = PC[md.char];
+  switch (rw.kind){
+    case 'tonic':     say(`Step 8 lands on ${name}, the tonic: the sequence comes home (${pts(R.tonic)}). The next one starts from here.`, 2600, 3); return;
+    case 'fifth':     say(`Step 4: ${name}, the dominant. The sequence has reached its halfway point (${pts(R.hit)}).`, 2000, 2); return;
+    case 'extra':     say(`Step ${md.extra.b+1}: ${name}, ${md.extra.deg}: ${md.extra.line} (${pts(R.hit)}).`, 2000, 2); return;
+    case 'miss-extra':say(`Step ${md.extra.b+1} should be ${PC[md.extra.pc]}, ${md.extra.deg}, but it played ${name} (${pts(R.miss)}).`, 1800, 1); return;
+    case 'char':      say(`Step 1: ${name}, ${md.deg}. The sequence opens by saying ${md.mood} (${pts(R.hit)}).`, 2400, 2); return;
+    case 'missEnd':   say(`Step 8 should come home to C, the tonic, but it played ${name} (${pts(R.missEnd)}).`, 1800, 1); return;
+    case 'miss-fifth':say(`Step 4 should be G, the dominant, but it played ${name} (${pts(R.miss)}).`, 1800, 1); return;
+    case 'miss-char': say(`Step 1 should be ${ch}, ${md.deg}, but it played ${name}, so the opening does not say ${md.mood} (${pts(R.miss)}).`, 1800, 1); return;
+    case 'out':       say(`${name} is not part of ${md.name} (${pts(R.out)}). It becomes less likely to go there on this step again.`, 1600, 1); return;
+  }
+  if (steps - lastLesson < 24) return; lastLesson = steps;
+  const r = ratio();
+  if (eps > 0.6) say('It is still exploring. Most moves are random so it can discover which notes earn points on which step.', 2600);
+  else if (r < 0.8) say('It is learning which squares cost points. It also cannot step straight back to the square it just left, so it has to keep moving on.', 2600);
+  else if (r < 0.95) say(`Most of what it plays is now in ${md.name}. It is still working out the shape of the sequence: ${ch} first, G in the middle, C at the end.`, 2600);
+  else say('It has found a sequence that earns the most points, and now mostly repeats it. Now and then it still tries a random move.', 2600);
+}
+let aud = null;
+function cellOf(m){ for (let y=N-1;y>=0;y--) for (let x=0;x<N;x++) if (midiAt(x,y) === m) return { x, y }; return null; }
+function stopAudition(){
+  if (!aud) return;
+  aud.timers.forEach(clearTimeout);
+  aud.gain.gain.setTargetAtTime(0, AC.currentTime, 0.04);
+  const gn = aud.gain; setTimeout(() => gn.disconnect(), 400);
+  const resume = aud.resume; aud = null;
+  $('listen').setAttribute('aria-pressed', 'false');
+  if (resume) setPlaying(true);
+}
+function audition(){
+  if (aud){ stopAudition(); return; }
+  initAudio();
+  const md = MODES[modeKey], resume = playing;
+  if (playing) setPlaying(false);
+  const gain = AC.createGain(); gain.connect(bus);
+  aud = { timers:[], gain, resume };
+  $('listen').setAttribute('aria-pressed', 'true');
+  // 1) the scale from C4 up to C5 and back down, tonic and third slightly accented
+  const up = [...md.set.map(p => 60 + p), 72], line = [...up, ...up.slice(0, -1).reverse()];
+  const ev = line.map((m, i) => ({ m, at:i*0.2, vel:(m%12 === 0 || m%12 === md.char) ? 0.95 : 0.6, len:0.7 }));
+  // 2) the notes the agent is rewarded for, in order: the third (step 1), G (step 4), B in minor (step 7), C (step 8)
+  const ch = 60 + md.char, t0 = line.length*0.2 + 0.5;
+  const tgts = [[0, ch], [3, 67], [7, 72]]; if (md.extra) tgts.push([md.extra.b, 60 + md.extra.pc + (md.extra.pc > 7 ? 0 : md.extra.b > 3 ? 12 : 0)]);
+  tgts.sort((p, q) => p[0] - q[0]);
+  tgts.forEach(([, m], i) => ev.push({ m, at:t0 + i*0.5, vel:0.95, len:i === tgts.length-1 ? 2.2 : 1.2 }));
+  say(`${md.name}: the scale from C up to C and back. Listen for ${PC[md.char]}, ${md.deg}.`, 3200, 5);
+  ev.forEach(e => {
+    playNote(e.m, e.vel, (cellOf(e.m) || { x:3.5 }).x, e.len, e.at, gain);
+    aud.timers.push(setTimeout(() => { const cl = cellOf(e.m); if (cl){ ripples.push({ x:cl.x, y:cl.y, k:true, t:performance.now() }); if (ripples.length > 24) ripples.shift(); } }, e.at*1000));
+  });
+  aud.timers.push(setTimeout(() => say(`Then the notes the agent is rewarded for: ${tgts.map(([b, m]) => `${PC[m%12]} on step ${b+1}`).join(', ')}.`, 3200, 5), t0*1000));
+  aud.timers.push(setTimeout(stopAudition, (t0 + tgts.length*0.5 + 0.9)*1000));
+}
+function setPlaying(p){
+  if (p && aud){ aud.resume = false; stopAudition(); }
+  playing = p; $('play').textContent = p ? 'Pause' : 'Play'; $('play').setAttribute('aria-pressed', String(p));
+  if (p){ initAudio(); $('overlay').hidden = true; lastStep = 0; }
+}
+$('begin').addEventListener('click', () => setPlaying(true));
+$('listen').addEventListener('click', audition);
+$('play').addEventListener('click', () => setPlaying(!playing));
+$('skip').addEventListener('click', () => {
+  const target = phrases + 2000;
+  while (phrases < target) step(false);
+  trail = []; ripples = []; seq = []; rest = false;
+  say(`It practised 2,000 sequences silently and has now played ${phrases.toLocaleString()} in total. Press Play to hear what it has learned.`, 3600, 5);
+  updateUI();
+});
+$('reset').addEventListener('click', () => { startOver(); say('The agent has forgotten everything and starts again from zero.', 2600, 5); updateUI(); });
+$('eps').addEventListener('input', () => { if (hint.key === 'eps') hideHint(true); else markHint('eps'); });
+$('eps').addEventListener('input', e => { autoEps = false; eps = +e.target.value; $('epsOut').textContent = eps.toFixed(2) + ' manual'; });
+$('bpm').addEventListener('input', e => { $('bpmOut').textContent = e.target.value + ' bpm'; });
+// Space always means Play/Pause, even when a button still has focus after a click (otherwise Space would press that button again).
+// The scale figure's note circles keep Space for themselves.
+const spaceIsPlay = e => e.code === 'Space' && !(e.target.closest && e.target.closest('.pkey')) && !/TEXTAREA|SELECT/.test(e.target.tagName) && !(e.target.tagName === 'INPUT' && /text|search|email|number/.test(e.target.type));
+document.addEventListener('keydown', e => { if (!spaceIsPlay(e)) return; e.preventDefault(); if (!e.repeat) setPlaying(!playing); }, true);
+document.addEventListener('keyup', e => { if (spaceIsPlay(e)) e.preventDefault(); }, true);
+
+buildModes(); initCube(); updateUI(); resize();
+document.querySelectorAll('.qv').forEach(b => b.addEventListener('click', () => {
+  qView = b.dataset.v;
+  document.querySelectorAll('.qv').forEach(o => o.setAttribute('aria-pressed', String(o === b)));
+  document.querySelectorAll('.qnotes').forEach(n => n.hidden = n.dataset.v !== qView);
+  $('qtip').hidden = true;
+}));
+// the scale figure is a little keyboard: each circle plays its note, from C4
+function pressKey(k){
+  if (!k) return; initAudio(); playNote(+k.dataset.m, 0.8, 3.5, 1.3);
+  k.classList.remove('on'); void k.getBBox(); k.classList.add('on'); setTimeout(() => k.classList.remove('on'), 320);
+}
+$('figScale').addEventListener('click', e => pressKey(e.target.closest('.pkey')));
+$('figScale').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pressKey(e.target.closest('.pkey')); } });
+
+/* ---------------- progressive hints: one at a time, each shown once per browser ---------------- */
+const hint = { el:null, target:null, key:null, mid:false };
+const HINT_KEYS = ['veil', 'play', 'skip', 'drag', 'eps'];
+try { if (/[?#&]hints\b/.test(location.search + location.hash)) HINT_KEYS.forEach(k => localStorage.removeItem('tg-hint-' + k)); } catch(e){}
+const hintSeen = k => { try { return localStorage.getItem('tg-hint-' + k) === '1'; } catch(e){ return false; } };
+const markHint = k => { try { localStorage.setItem('tg-hint-' + k, '1'); } catch(e){} };
+function showHint(k, target, html, mid = false){
+  if (hintSeen(k) || hint.key === k) return;
+  hideHint(false);
+  const el = document.createElement('div'); el.className = 'hint' + (mid ? ' mid' : ''); el.setAttribute('role', 'status');
+  el.innerHTML = html + '<button class="hint-x" aria-label="Dismiss hint">×</button>';
+  el.querySelector('.hint-x').addEventListener('click', () => hideHint(true));
+  document.body.appendChild(el); Object.assign(hint, { el, target, key:k, mid });
+  placeHint(); requestAnimationFrame(() => el.classList.add('on'));
+}
+function hideHint(done = true){
+  if (!hint.el) return;
+  if (done) markHint(hint.key);
+  const el = hint.el; el.classList.remove('on'); setTimeout(() => el.remove(), 400);
+  Object.assign(hint, { el:null, target:null, key:null });
+}
+function placeHint(){
+  if (!hint.el) return;
+  const r = hint.target.getBoundingClientRect();
+  hint.el.style.left = (r.left + scrollX + r.width/2) + 'px';
+  hint.el.style.top = (hint.mid ? r.top + scrollY + r.height*0.5 - hint.el.offsetHeight/2 : r.bottom + scrollY + 12) + 'px';
+}
+if (!hintSeen('play')) $('play').classList.add('hint-pulse');
+if (!hintSeen('veil')){
+  // first visit only: dim everything but Play and "Start with sound"; any click, key or scroll lifts it
+  const veil = document.createElement('div'); veil.className = 'veil'; veil.setAttribute('aria-hidden', 'true');
+  $('play').closest('.win').appendChild(veil);
+  [$('play'), $('begin')].forEach(el => el.classList.add('lift'));
+  setTimeout(() => veil.classList.add('on'), 500);
+  const lift = () => {
+    markHint('veil'); veil.classList.remove('on'); setTimeout(() => veil.remove(), 700);
+    [$('play'), $('begin')].forEach(el => el.classList.remove('lift'));
+    ['pointerdown', 'keydown', 'wheel'].forEach(t => removeEventListener(t, lift, true));
+  };
+  ['pointerdown', 'keydown', 'wheel'].forEach(t => addEventListener(t, lift, true));
+}
+let playedSteps = 0, playedSinceSkip = 0;   // notes heard since the page opened / since the last +2,000, for the hints
+function hintTick(){
+  if (playing && hint.key === null && !hintSeen('skip') && playedSteps >= 64 && phrases < 2000)
+    showHint('skip', $('skip'), 'Slow going? <b>+2,000 episodes</b> lets it practise silently, in a moment.');
+  if (playing && hint.key === null && !hintSeen('eps') && (hintSeen('drag') || !cube.ok) && phrases >= 2000 && eps < 0.1 && playedSinceSkip >= 48)
+    showHint('eps', $('eps'), 'Hearing the same loop? Drag <b>Explore ε</b> up and it starts trying new notes again.');
+  if (hint.key === 'drag' && cube.rot > 0.3) hideHint(true);
+  placeHint();
+}
+$('play').addEventListener('click', () => { $('play').classList.remove('hint-pulse'); markHint('play'); });
+$('begin').addEventListener('click', () => { $('play').classList.remove('hint-pulse'); markHint('play'); });
+document.addEventListener('keydown', e => { if (e.code === 'Space'){ $('play').classList.remove('hint-pulse'); markHint('play'); } });
+$('skip').addEventListener('click', () => {
+  playedSinceSkip = 0;
+  if (hint.key === 'skip') hideHint(true); else markHint('skip');
+  if (cube.ok && !hintSeen('drag')) setTimeout(() => showHint('drag', $('qcube'), '<b>Drag</b> the Q table to turn it and see all 8 steps stacked behind.', true), 700);
+});
+
+function frame(now){
+  if (playing){
+    const interval = 60000 / (+$('bpm').value) / 2; // eighth notes
+    if (!lastStep || now - lastStep >= interval){ lastStep = lastStep ? lastStep + interval : now; if (now - lastStep > interval*4) lastStep = now;
+      if (rest) rest = false;                 // a short breath after each phrase
+      else { if (step(true) === 7) rest = true; playedSteps++; playedSinceSkip++; updateUI(); } }
+  }
+  draw(now); hintTick();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
